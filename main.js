@@ -23,8 +23,8 @@ const mainGuiTop = 0;
 const mainGuiLeft = 0;
 const mainGuiWidth = clientWidth;  // dynamic width of main GUI panel
 
-const secondaryGuiTopOffset = 324;  // vertical offset for secondary GUI (gui2)
-const InertGuiOffset = 230;
+const secondaryGuiTopOffset = 323;  // vertical offset for secondary GUI (gui2)
+const InertGuiOffset = 228;
 const secondaryGuiLeft = 0;
 const secondaryGuiWidth = clientWidth; // same width as main GUI by default
 
@@ -70,6 +70,7 @@ let inertConcSaved = inertConcStart;
 let inertShown = false;
 
 // Graphing Function Prep
+let GraphFS = 24;
 let attPlot;
 let equation;
 let AttenuationFunction;  // Make sure this is global so mouseMoved and draw can access it
@@ -372,14 +373,15 @@ function initPlot() {
 
   attPlot.GPLOT.getXAxis().getAxisLabel().setText("Depth (\u03BCm)");
   attPlot.GPLOT.getYAxis().getAxisLabel().setText("Intensity (mW/cm²)");
-  attPlot.GPLOT.getTitle().setText("Attenuation due to one absorber (monochromatic source)");
+  //attPlot.GPLOT.getTitle().setText("Attenuation due to one absorber (monochromatic source)");
+  attPlot.GPLOT.getTitle().setText("");
 
-  attPlot.GPLOT.getXAxis().getAxisLabel().setFontSize(16);
-  attPlot.GPLOT.getYAxis().getAxisLabel().setFontSize(16);
-  attPlot.GPLOT.getXAxis().setFontSize(16);
-  attPlot.GPLOT.getYAxis().setFontSize(16);
-  attPlot.GPLOT.getTitle().setFontSize(16);
-  attPlot.GPLOT.setFontSize(16);
+  attPlot.GPLOT.getXAxis().getAxisLabel().setFontSize(GraphFS);
+  attPlot.GPLOT.getYAxis().getAxisLabel().setFontSize(GraphFS);
+  attPlot.GPLOT.getXAxis().setFontSize(GraphFS);
+  attPlot.GPLOT.getYAxis().setFontSize(GraphFS);
+  attPlot.GPLOT.getTitle().setFontSize(GraphFS);
+  attPlot.GPLOT.setFontSize(GraphFS);
 }
 
 function setup() {
@@ -485,9 +487,11 @@ function draw() {
   endShape();
 
   // Recalculate vertical reference lines dynamically
-  const A10 = -1e7 / (Absorb * Conc) * Math.log(0.9);
-  const A20 = -1e7 / (Absorb * Conc) * Math.log(0.8);
-  const Ae  = -1e7 / (Absorb * Conc) * Math.log(0.367879);
+  const totalAbsConc2 = Absorb * Conc + inertAbsorb * inertConc;
+
+  const A10 = -1e7 / totalAbsConc2 * Math.log(0.9);
+  const A20 = -1e7 / totalAbsConc2 * Math.log(0.8);
+  const Ae  = -1e7 / totalAbsConc2 * Math.log(0.367879);
 
   const depths = [
     { depth: A10, color: [255, 100, 100], label: "90%" },
@@ -524,7 +528,7 @@ function draw() {
 
     // Draw label
     const labelX = pxLine + 4;
-    textSize(16);
+    textSize(GraphFS);
     textAlign(LEFT, BOTTOM);
     noStroke();
     fill(...d.color);
@@ -542,10 +546,10 @@ function draw() {
 
     noStroke();
     fill(0);
-    textSize(14);
+    textSize(GraphFS-2);
     textAlign(LEFT, CENTER);
-    text(`Depth: ${snapX.toPrecision(3)} µm`, px + 10, py - 20);
-    text(`Intensity: ${snapY.toPrecision(3)} mW/cm²`, px + 10, py);
+    text(`Depth: ${snapX.toPrecision(3)} µm`, px + 10, py - GraphFS - 6);
+    text(`Intensity: ${snapY.toPrecision(3)} mW/cm²`, px + 10, py - 2);
   }
 
   // Combined absorptivity * concentration
