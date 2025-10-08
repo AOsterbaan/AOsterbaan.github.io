@@ -161,7 +161,7 @@ function initSliders() {
     new ProductSlider('mean', 300, 800, GausMean, 1, 'Center', 'nm'),
     new ProductSlider('fwhm', 1, 200, GausFWHM, 1, 'FWHM', 'nm'),
     new ProductSlider('depth', 0, 500, Depth, 1, 'Depth', 'µm'),
-    new ProductSlider('conc', 0, 0.1, Concentration, 0.001, 'Concentration', '')
+    new ProductSlider('conc', 0, 1000, Concentration, 1, 'Concentration', 'mM')
   ];
 
   const callbacks = [
