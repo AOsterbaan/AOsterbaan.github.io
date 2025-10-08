@@ -14,18 +14,42 @@ let integral = 0;
 // GUI & sliders
 let gui;
 let y2scale = 1;
-let GausMean = 400;
-let GausSig = 10;
+let GausMean = 405;
+let GausFWHM = 35;
 let GraphFS = 24;
 const GAUS_AMP = 1; // fixed amplitude
 
 // New sliders
-let Depth = 100;
-let Concentration = 0.01;
+let Depth = 50;
+let Concentration = 400;
+
+
+let currentFile = "exponentialAbs.csv";
+let currentSpectrum = "Exponential"; // default
+let customTable = null;
+const EXPONENTIAL_SCALE = 4000; // or 5000
+let spectrumCache = {
+  "Exponential": null,
+  "TPO": null,
+  "Custom": null
+};
+
+
 
 // -------------------- Preload CSV --------------------
 function preload() {
-  table = loadTable("data.csv", "csv", "header");
+  table = loadTable(currentFile, "csv", "header");
+}
+
+// -------------------- Switch CSV --------------------
+function loadNewCSV(fileName) {
+  loadTable(fileName, "csv", "header", tbl => {
+    table = tbl;
+    parseCSV();
+    updateCurve();
+  }, err => {
+    console.error("Failed to load " + fileName, err);
+  });
 }
 
 // -------------------- Setup --------------------
@@ -44,33 +68,105 @@ function setup() {
 // -------------------- CSV Parsing --------------------
 function parseCSV() {
   if (!table) {
-    console.error("data.csv failed to load");
+    console.error("CSV failed to load");
     return;
   }
+
   dataX = [];
   dataY = [];
 
+  const scale = currentSpectrum === "Exponential" ? EXPONENTIAL_SCALE : 1;
+
   for (let r = 0; r < table.getRowCount(); r++) {
     dataX.push(float(table.getString(r, 0)));
-    dataY.push(float(table.getString(r, 1)));
+    dataY.push(float(table.getString(r, 1)) * scale);
   }
+
+  // Cache the data
+  spectrumCache[currentSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
 }
+
 
 // -------------------- GUI / Sliders --------------------
 function initSliders() {
   gui = createGui('Plot controls', 100, 100);
   const parent = gui.prototype._panel;
 
+  // --- Spectrum selector ---
+  const spectrumDiv = document.createElement("div");
+  spectrumDiv.className = "qs_container";
+  spectrumDiv.innerHTML = `<b>Spectrum:</b> `;
+
+  const options = ["Exponential", "TPO", "Custom"];
+  const select = document.createElement("select");
+  options.forEach(opt => select.add(new Option(opt, opt)));
+  select.value = currentSpectrum;
+
+  spectrumDiv.appendChild(select);
+  parent.appendChild(spectrumDiv);
+
+  // --- Custom CSV file input ---
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = ".csv";
+  fileInput.style.display = currentSpectrum === "Custom" ? "inline-block" : "none";
+  spectrumDiv.appendChild(fileInput);
+
+  // --- Handle spectrum selection ---
+  select.addEventListener("change", e => {
+  const newSpec = e.target.value;
+  
+  // Save current data before switching
+  spectrumCache[currentSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
+
+  currentSpectrum = newSpec;
+  fileInput.style.display = currentSpectrum === "Custom" ? "inline-block" : "none";
+
+  if (spectrumCache[currentSpectrum]) {
+    // Restore cached data
+    dataX = [...spectrumCache[currentSpectrum].dataX];
+    dataY = [...spectrumCache[currentSpectrum].dataY];
+    updateCurve();
+  } else if (currentSpectrum !== "Custom") {
+    // Load default spectrum if no cache yet
+    loadDefaultSpectrum(currentSpectrum);
+  } else {
+    console.log("Custom spectrum selected. Waiting for file upload.");
+  }
+});
+
+  // --- Handle custom CSV file upload ---
+  fileInput.addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const customData = Papa.parse(evt.target.result, {
+          header: true,
+          dynamicTyping: true
+        }).data;
+
+        parseCustomCSV(customData);
+      } catch (err) {
+        console.error("Error parsing custom CSV:", err);
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // --- Gaussian / Product sliders ---
   const sliders = [
     new ProductSlider('mean', 300, 800, GausMean, 1, 'Center', 'nm'),
-    new ProductSlider('sigma', 1, 200, GausSig, 1, 'Width (σ)', 'nm'),
+    new ProductSlider('fwhm', 1, 200, GausFWHM, 1, 'FWHM', 'nm'),
     new ProductSlider('depth', 0, 500, Depth, 1, 'Depth', 'µm'),
     new ProductSlider('conc', 0, 0.1, Concentration, 0.001, 'Concentration', '')
   ];
 
   const callbacks = [
     val => { GausMean = val; updateCurve(); },
-    val => { GausSig = val; updateCurve(); },
+    val => { GausFWHM = val; updateCurve(); },
     val => { Depth = val; updateCurve(); },
     val => { Concentration = val; updateCurve(); }
   ];
@@ -80,11 +176,74 @@ function initSliders() {
     slider.setCallback(callbacks[i]);
   });
 
+  // --- Panel position ---
   const PAD_SIDE = 10;
   setPanelPosition(gui, "right", attPlot.GPLOT.mar[2], PAD_SIDE);
 
+  // Initial curve draw
   updateCurve();
 }
+
+// -------------------- Load default spectra --------------------
+function loadDefaultSpectrum(name) {
+  let path = "";
+  if (name === "Exponential") path = "exponentialAbs.csv";
+  if (name === "TPO") path = "tpoAbs.csv";
+
+  loadTable(path, "csv", "header", tbl => {
+    table = tbl;
+    parseCSV();
+    updateCurve();
+  }, err => {
+    console.error("Failed to load " + path, err);
+  });
+}
+
+// -------------------- Parse custom CSV --------------------
+function parseCustomCSV(customData) {
+  const newX = [];
+  const newY = [];
+
+  customData.forEach(row => {
+    const keys = Object.keys(row);
+    if (keys.length >= 2) {
+      const x = parseFloat(row[keys[0]]);
+      const y = parseFloat(row[keys[1]]);
+      if (!isNaN(x) && !isNaN(y)) {
+        newX.push(x);
+        newY.push(y);
+      }
+    }
+  });
+
+  if (newX.length && newY.length) {
+    dataX = newX;
+    dataY = newY;
+
+    // Make sure the current table reference matches custom CSV if needed
+    table = null; // mark that we’re now using custom data
+
+    updateCurve();
+    console.log("Custom CSV loaded. Curve updated.");
+  } else {
+    console.warn("Custom CSV is empty or malformed. Keeping previous spectrum.");
+  }
+  if (newX.length && newY.length) {
+  dataX = newX;
+  dataY = newY;
+
+  // Cache custom data
+  spectrumCache["Custom"] = { dataX: [...dataX], dataY: [...dataY] };
+
+  updateCurve();
+  console.log("Custom CSV loaded. Curve updated.");
+}
+
+}
+
+
+
+
 
 // -------------------- Curve Computation --------------------
 function updateCurve() {
@@ -100,6 +259,8 @@ function updateCurve() {
   let fullAttenY = [];
   let fullAttenProductY = [];
 
+  const GausSig = GausFWHM / 2.35482; // convert FWHM to sigma
+
   for (let i = 0; i < npts; i++) {
     const x = lerp(minX, maxX, i / (npts - 1));
     const g = GAUS_AMP * Math.exp(-Math.pow(x - GausMean, 2) / (2 * GausSig * GausSig));
@@ -107,8 +268,8 @@ function updateCurve() {
 
     fullGaussY.push({ x, y: g });
     fullProductY.push({ x, y: g * yData * x});
-    fullAttenY.push({ x, y: g * Math.exp(-yData * Concentration * Depth) });
-    fullAttenProductY.push({ x, y: g * Math.exp(-yData * Concentration * Depth) * yData * x});
+    fullAttenY.push({ x, y: g * Math.exp(-yData * Concentration/1000 * Depth/10000) });
+    fullAttenProductY.push({ x, y: g * Math.exp(-yData * Concentration/1000 * Depth/10000) * yData * x});
   }
 
   // Compute global max of raw product values for scaling
@@ -143,40 +304,45 @@ function updateCurve() {
 // -------------------- Draw Plot Title --------------------
 function drawPlot() {
   const PAD = 60;
+
+  // Map functions for dual axes
   const minX = Math.min(...dataX);
   const maxX = Math.max(...dataX);
-  const minY = 0;
-  const maxY = Math.max(
-    ...dataY,
+
+  const minYLeft = 0;
+  const maxYLeft = Math.max(
     ...gaussY.map(p => p.y),
     ...productY.map(p => p.y),
     ...attenY.map(p => p.y),
     ...attenProductY.map(p => p.y)
   );
 
-  const mapX = x => map(x, minX, maxX, PAD, width - PAD);
-  const mapY = y => map(y, minY, maxY, height - PAD, PAD);
+  const minYRight = 0;
+  const maxYRight = Math.max(...dataY);
+
+  const mapXFunc = x => map(x, minX, maxX, PAD, width - PAD);
+  const mapYLeftFunc = y => map(y, minYLeft, maxYLeft, height - PAD, PAD);
+  const mapYRightFunc = y => map(y, minYRight, maxYRight, height - PAD, PAD);
 
   drawAxes(PAD);
 
-  // Draw curves
-  drawLine(dataX, dataY, mapX, mapY, color(0, 0, 255));
-  drawLine(gaussY.map(p => p.x), gaussY.map(p => p.y), mapX, mapY, color(0, 220, 0));
-  drawLine(productY.map(p => p.x), productY.map(p => p.y), mapX, mapY, color(220, 0, 0));
-  drawLine(attenY.map(p => p.x), attenY.map(p => p.y), mapX, mapY, color(0, 180, 80));
-  drawLine(attenProductY.map(p => p.x), attenProductY.map(p => p.y), mapX, mapY, color(180, 0, 80));
+  // LEFT-axis curves
+  drawLine(gaussY.map(p => p.x), gaussY.map(p => p.y), mapXFunc, mapYLeftFunc, color(0, 220, 0));
+  drawLine(productY.map(p => p.x), productY.map(p => p.y), mapXFunc, mapYLeftFunc, color(220, 0, 0));
+  drawLine(attenY.map(p => p.x), attenY.map(p => p.y), mapXFunc, mapYLeftFunc, color(0, 180, 80));
+  drawLine(attenProductY.map(p => p.x), attenProductY.map(p => p.y), mapXFunc, mapYLeftFunc, color(180, 0, 80));
 
-  // Draw title
+  // RIGHT-axis curve
+  drawLine(dataX, dataY, mapXFunc, mapYRightFunc, color(0, 0, 255));
+
+  // Title
   noStroke(); fill(0);
   textSize(16); textAlign(CENTER);
-  text(
-    `Absorbed photons at max depth relative to surface = ${nf(integralPercent, 1, 1)}%`,
-    width / 2,
-    PAD / 2
-  );
+  text(`Absorbed photons at max depth relative to surface = ${nf(integralPercent, 1, 1)}%`,
+       width / 2, PAD / 2);
 
-  // Draw legend
-  const legendX = width - PAD - 150;
+  // Legend
+  const legendX = width - PAD - 220;
   let legendY = PAD;
   const legendSpacing = 20;
   const legendBoxSize = 12;
@@ -184,9 +350,9 @@ function drawPlot() {
   const legendItems = [
     { col: color(0, 0, 255), label: "Absorbance" },
     { col: color(0, 220, 0), label: "Gaussian LED" },
-    { col: color(220, 0, 0), label: "Absorbed Photons" },
-    { col: color(0, 180, 80), label: "Attenuated Light" },
-    { col: color(180, 0, 80), label: "Attenuated --> Absorbed Photons" }
+    { col: color(220, 0, 0), label: "Absorbed photons" },
+    { col: color(0, 180, 80), label: "Attenuated light" },
+    { col: color(180, 0, 80), label: "Attenuated absorbed photons" }
   ];
 
   textAlign(LEFT, CENTER);
@@ -200,8 +366,6 @@ function drawPlot() {
   });
 }
 
-
-
 // Updated interpolation remains the same
 function interp1(xs, ys, x, defaultValue = null) {
   if (x < xs[0]) return defaultValue !== null ? defaultValue : ys[0];
@@ -213,7 +377,6 @@ function interp1(xs, ys, x, defaultValue = null) {
     }
   }
 }
-
 
 // -------------------- Drawing --------------------
 function draw() {
@@ -241,19 +404,97 @@ function initPlot() {
 // -------------------- Axes & Utilities --------------------
 function drawAxes(PAD) {
   stroke(0); strokeWeight(1);
+
+  // Primary Y-axis (left)
   line(PAD, PAD, PAD, height - PAD);
+  // Secondary Y-axis (right)
+  line(width - PAD, PAD, width - PAD, height - PAD);
+  // X-axis
   line(PAD, height - PAD, width - PAD, height - PAD);
 
   noStroke(); fill(0); textSize(14);
+
+  // --- X-axis label ---
   textAlign(CENTER);
   text("Wavelength (nm)", width / 2, height - 20);
 
+  // --- Left Y-axis (primary) label ---
   push();
   translate(20, height / 2);
   rotate(-PI / 2);
   textAlign(CENTER, CENTER);
-  text("Value", 0, 0);
+  text("Light spectrum and absorbed photons (relative)", 0, 0);
   pop();
+
+  // --- Right Y-axis (secondary) label ---
+  push();
+  translate(width-10, height / 2);
+  rotate(-PI / 2);
+  textAlign(CENTER, CENTER);
+  text("Napierian Absorptivity (L/mol-cm)", 0, 0);
+  pop();
+
+  // --- Tick marks ---
+  const nXTicks = 8;
+  const nYTicks = 6;
+
+  const minX = Math.min(...dataX);
+  const maxX = Math.max(...dataX);
+
+  const minYLeft = 0;
+  const maxYLeft = Math.max(
+    ...gaussY.map(p => p.y),
+    ...productY.map(p => p.y),
+    ...attenY.map(p => p.y),
+    ...attenProductY.map(p => p.y)
+  );
+
+  const minYRight = 0;
+  const maxYRight = Math.max(...dataY);
+
+  // --- X ticks ---
+textAlign(CENTER, TOP);
+const xTicks = getTicks(Math.min(...dataX), Math.max(...dataX), 10);
+xTicks.forEach(xVal => {
+  const px = map(xVal, Math.min(...dataX), Math.max(...dataX), PAD, width - PAD);
+  stroke(0); line(px, height - PAD, px, height - PAD + 5);
+  noStroke(); fill(0);
+  text(formatTick(xVal, 1), px, height - PAD + 7);
+});
+
+// --- Left Y ticks ---
+textAlign(RIGHT, CENTER);
+const yLeftTicks = getTicks(0, Math.max(
+  ...gaussY.map(p => p.y),
+  ...productY.map(p => p.y),
+  ...attenY.map(p => p.y),
+  ...attenProductY.map(p => p.y)
+), 10);
+
+yLeftTicks.forEach(yVal => {
+  const py = map(yVal, 0, Math.max(...yLeftTicks), height - PAD, PAD);
+  stroke(0); line(PAD - 5, py, PAD, py);
+  noStroke(); fill(0);
+  text(formatTick(yVal, 2), PAD - 7, py);
+});
+
+// --- Right Y ticks ---
+textAlign(LEFT, CENTER);
+const yRightTicks = getTicks(0, Math.max(...dataY), 10);
+yRightTicks.forEach(yVal => {
+  const py = map(yVal, 0, Math.max(...yRightTicks), height - PAD, PAD);
+  stroke(0); line(width - PAD, py, width - PAD + 5, py);
+  noStroke(); fill(0);
+  text(formatTick(yVal, 2), width - PAD + 7, py);
+});
+
+}
+
+function mapYSecondary(y) {
+  const PAD = 60;
+  const minY = 0;
+  const maxY = Math.max(...dataY);  // max of absorbance only
+  return map(y, minY, maxY, height - PAD, PAD);
 }
 
 function interp1(xs, ys, x) {
@@ -415,3 +656,56 @@ function windowResized() {
   initPanelPositions();
   loop();
 }
+
+// -------------------- Misc Helpers --------------------
+function getTicks(minVal, maxVal, targetTicks = 5) {
+  const range = niceNumber(maxVal - minVal, false);
+  const tickSpacing = niceNumber(range / (targetTicks - 1), true);
+  const niceMin = Math.floor(minVal / tickSpacing) * tickSpacing;
+  const niceMax = Math.ceil(maxVal / tickSpacing) * tickSpacing;
+
+  const ticks = [];
+  for (let val = niceMin; val <= niceMax + 0.5 * tickSpacing; val += tickSpacing) {
+    ticks.push(val);
+  }
+  return ticks;
+}
+
+function niceNumber(range, round = true) {
+  // Range should be positive
+  const exponent = Math.floor(Math.log10(range));
+  const fraction = range / Math.pow(10, exponent);
+  let niceFraction;
+
+  if (round) {
+    if (fraction < 1.5) niceFraction = 1;
+    else if (fraction < 3) niceFraction = 2;
+    else if (fraction < 7) niceFraction = 5;
+    else niceFraction = 10;
+  } else {
+    if (fraction <= 1) niceFraction = 1;
+    else if (fraction <= 2) niceFraction = 2;
+    else if (fraction <= 5) niceFraction = 5;
+    else niceFraction = 10;
+  }
+
+  return niceFraction * Math.pow(10, exponent);
+}
+
+function formatTick(val, decimals = 2) {
+  // Round to given decimal places
+  const factor = Math.pow(10, decimals);
+  let rounded = Math.round(val * factor) / factor;
+
+  // Convert to string and remove trailing zeros
+  let str = rounded.toString();
+
+  if (str.indexOf('.') >= 0) {
+    // Remove trailing zeros
+    str = str.replace(/\.?0+$/, '');
+  }
+  return str;
+}
+
+
+
