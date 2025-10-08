@@ -21,7 +21,7 @@ const GAUS_AMP = 1; // fixed amplitude
 
 // New sliders
 let Depth = 50;
-let Concentration = 400;
+let Concentration = 335;
 
 
 let currentFile = "exponentialAbs.csv";
