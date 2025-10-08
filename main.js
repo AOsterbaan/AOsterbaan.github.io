@@ -102,12 +102,12 @@ function initSliders() {
   lightDiv.innerHTML = `<b>Light Source:</b> `;
 
   const lightSelect = document.createElement("select");
-  ["LED (Gaussian)", "Hg-Bulb (400-500 filter)", "Custom Spectrum"].forEach(opt =>
+  ["LED (Gaussian)", "Hg Lamp (400-500 nm filter)", "Custom Spectrum"].forEach(opt =>
     lightSelect.add(new Option(opt, opt))
   );
   lightSelect.value =
     currentLightSpectrum === "ArcLamp"
-      ? "Arc Lamp Spectrum"
+      ? "Hg-Arc Lamp (400-500 filter)"
       : currentLightSpectrum === "CustomLight"
       ? "Custom Spectrum"
       : "LED (Gaussian)";
