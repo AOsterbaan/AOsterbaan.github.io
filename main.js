@@ -2,32 +2,36 @@
 
 let table;
 
-// Data arrays and results
-let dataX = [];
-let dataY = [];
+// -------------------- Data Arrays --------------------
+let absX = [];        // absorbance (material)
+let absY = [];
+let lightX = [];      // illumination (light source)
+let lightY = [];
 let gaussY = [];
 let productY = [];
 let attenY = [];
 let attenProductY = [];
 let integral = 0;
+let integralPercent = 0;
 
-// GUI & sliders
-let gui;
-let y2scale = 1;
+// -------------------- Global Params --------------------
 let GausMean = 405;
 let GausFWHM = 35;
-let GraphFS = 24;
-const GAUS_AMP = 1; // fixed amplitude
-
-// New sliders
 let Depth = 50;
 let Concentration = 335;
-
-
-let currentFile = "exponentialAbs.csv";
-let currentSpectrum = "Exponential"; // default
-let customTable = null;
+const GAUS_AMP = 1;
 const EXPONENTIAL_SCALE = 4000; // or 5000
+let GraphFS = 24;
+
+
+let sliderMean, sliderFWHM;
+let currentLightSpectrum = "LED"; // 'LED' or 'ArcLamp'
+
+
+let currentFile = "tpoAbs.csv";
+let currentAbsSpectrum = "TPO"; // default
+let customTable = null;
+
 let spectrumCache = {
   "Exponential": null,
   "TPO": null,
@@ -75,7 +79,7 @@ function parseCSV() {
   dataX = [];
   dataY = [];
 
-  const scale = currentSpectrum === "Exponential" ? EXPONENTIAL_SCALE : 1;
+  const scale = currentAbsSpectrum === "Exponential" ? EXPONENTIAL_SCALE : 1;
 
   for (let r = 0; r < table.getRowCount(); r++) {
     dataX.push(float(table.getString(r, 0)));
@@ -83,7 +87,7 @@ function parseCSV() {
   }
 
   // Cache the data
-  spectrumCache[currentSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
+  spectrumCache[currentAbsSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
 }
 
 
@@ -92,74 +96,168 @@ function initSliders() {
   gui = createGui('Plot controls', 100, 100);
   const parent = gui.prototype._panel;
 
-  // --- Spectrum selector ---
-  const spectrumDiv = document.createElement("div");
-  spectrumDiv.className = "qs_container";
-  spectrumDiv.innerHTML = `<b>Spectrum:</b> `;
+  // -------------------- LIGHT SOURCE SECTION --------------------
+  const lightDiv = document.createElement("div");
+  lightDiv.className = "qs_container";
+  lightDiv.innerHTML = `<b>Light Source:</b> `;
 
-  const options = ["Exponential", "TPO", "Custom"];
-  const select = document.createElement("select");
-  options.forEach(opt => select.add(new Option(opt, opt)));
-  select.value = currentSpectrum;
+  const lightSelect = document.createElement("select");
+  ["LED (Gaussian)", "Hg-Bulb (400-500 filter)", "Custom Spectrum"].forEach(opt =>
+    lightSelect.add(new Option(opt, opt))
+  );
+  lightSelect.value =
+    currentLightSpectrum === "ArcLamp"
+      ? "Arc Lamp Spectrum"
+      : currentLightSpectrum === "CustomLight"
+      ? "Custom Spectrum"
+      : "LED (Gaussian)";
+  lightDiv.appendChild(lightSelect);
+  parent.appendChild(lightDiv);
 
-  spectrumDiv.appendChild(select);
-  parent.appendChild(spectrumDiv);
+  // --- Custom light CSV upload (hidden unless "Custom Spectrum")
+  const lightFileInput = document.createElement("input");
+  lightFileInput.type = "file";
+  lightFileInput.accept = ".csv";
+  lightFileInput.style.display =
+    currentLightSpectrum === "CustomLight" ? "inline-block" : "none";
+  lightDiv.appendChild(lightFileInput);
 
-  // --- Custom CSV file input ---
-  const fileInput = document.createElement("input");
-  fileInput.type = "file";
-  fileInput.accept = ".csv";
-  fileInput.style.display = currentSpectrum === "Custom" ? "inline-block" : "none";
-  spectrumDiv.appendChild(fileInput);
-
-  // --- Handle spectrum selection ---
-  select.addEventListener("change", e => {
-  const newSpec = e.target.value;
-  
-  // Save current data before switching
-  spectrumCache[currentSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
-
-  currentSpectrum = newSpec;
-  fileInput.style.display = currentSpectrum === "Custom" ? "inline-block" : "none";
-
-  if (spectrumCache[currentSpectrum]) {
-    // Restore cached data
-    dataX = [...spectrumCache[currentSpectrum].dataX];
-    dataY = [...spectrumCache[currentSpectrum].dataY];
+  // --- Handle light source change
+  lightSelect.addEventListener("change", e => {
+    const newVal = e.target.value;
+    if (newVal.includes("Arc Lamp")) {
+      currentLightSpectrum = "ArcLamp";
+      lightFileInput.style.display = "none";
+      loadDefaultLightSpectrum("ArcLamp");
+    } else if (newVal.includes("Custom")) {
+      currentLightSpectrum = "CustomLight";
+      lightFileInput.style.display = "inline-block";
+    } else {
+      currentLightSpectrum = "LED";
+      lightFileInput.style.display = "none";
+    }
+    toggleGaussianControls();
     updateCurve();
-  } else if (currentSpectrum !== "Custom") {
-    // Load default spectrum if no cache yet
-    loadDefaultSpectrum(currentSpectrum);
-  } else {
-    console.log("Custom spectrum selected. Waiting for file upload.");
-  }
-});
+  });
 
-  // --- Handle custom CSV file upload ---
-  fileInput.addEventListener("change", e => {
+  // --- Handle custom light CSV upload
+  lightFileInput.addEventListener("change", e => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = evt => {
       try {
-        const customData = Papa.parse(evt.target.result, {
+        const parsed = Papa.parse(evt.target.result, {
           header: true,
           dynamicTyping: true
         }).data;
 
-        parseCustomCSV(customData);
+        const newX = [], newY = [];
+        parsed.forEach(row => {
+          const keys = Object.keys(row);
+          if (keys.length >= 2) {
+            const x = parseFloat(row[keys[0]]);
+            const y = parseFloat(row[keys[1]]);
+            if (!isNaN(x) && !isNaN(y)) {
+              newX.push(x);
+              newY.push(y);
+            }
+          }
+        });
+
+        if (newX.length && newY.length) {
+          lightX = newX;
+          lightY = newY;
+          currentLightSpectrum = "CustomLight";
+          updateCurve();
+          console.log(`Custom light CSV loaded (${lightX.length} points).`);
+        }
       } catch (err) {
-        console.error("Error parsing custom CSV:", err);
+        console.error("Error parsing custom light CSV:", err);
       }
     };
     reader.readAsText(file);
   });
 
-  // --- Gaussian / Product sliders ---
+  // -------------------- ABSORBANCE / SAMPLE SECTION --------------------
+  const spectrumDiv = document.createElement("div");
+  spectrumDiv.className = "qs_container";
+  spectrumDiv.innerHTML = `<b>Absorbance Spectrum:</b> `;
+
+  const absOptions = ["Exponential", "TPO", "Custom"];
+  const absSelect = document.createElement("select");
+  absOptions.forEach(opt => absSelect.add(new Option(opt, opt)));
+  absSelect.value = currentAbsSpectrum;
+  spectrumDiv.appendChild(absSelect);
+  parent.appendChild(spectrumDiv);
+
+  // --- Absorbance CSV upload (for "Custom")
+  const absFileInput = document.createElement("input");
+  absFileInput.type = "file";
+  absFileInput.accept = ".csv";
+  absFileInput.style.display =
+    currentAbsSpectrum === "Custom" ? "inline-block" : "none";
+  spectrumDiv.appendChild(absFileInput);
+
+  // --- Handle absorbance selection
+  absSelect.addEventListener("change", e => {
+    const newSpec = e.target.value;
+    spectrumCache[currentAbsSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
+    currentAbsSpectrum = newSpec;
+    absFileInput.style.display = newSpec === "Custom" ? "inline-block" : "none";
+
+    if (spectrumCache[newSpec]) {
+      dataX = [...spectrumCache[newSpec].dataX];
+      dataY = [...spectrumCache[newSpec].dataY];
+      updateCurve();
+    } else if (newSpec !== "Custom") {
+      loadDefaultSpectrum(newSpec);
+    }
+  });
+
+  // --- Handle absorbance CSV upload
+  absFileInput.addEventListener("change", e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const parsed = Papa.parse(evt.target.result, {
+          header: true,
+          dynamicTyping: true
+        }).data;
+
+        const newX = [], newY = [];
+        parsed.forEach(row => {
+          const keys = Object.keys(row);
+          if (keys.length >= 2) {
+            const x = parseFloat(row[keys[0]]);
+            const y = parseFloat(row[keys[1]]);
+            if (!isNaN(x) && !isNaN(y)) {
+              newX.push(x);
+              newY.push(y);
+            }
+          }
+        });
+
+        if (newX.length && newY.length) {
+          dataX = newX;
+          dataY = newY;
+          spectrumCache["Custom"] = { dataX: [...dataX], dataY: [...dataY] };
+          updateCurve();
+          console.log(`Custom absorbance CSV loaded (${dataX.length} points).`);
+        }
+      } catch (err) {
+        console.error("Error parsing absorbance CSV:", err);
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  // -------------------- SLIDERS --------------------
   const sliders = [
-    new ProductSlider('mean', 300, 800, GausMean, 1, 'Center', 'nm'),
-    new ProductSlider('fwhm', 1, 200, GausFWHM, 1, 'FWHM', 'nm'),
+    (sliderMean = new ProductSlider('mean', 300, 800, GausMean, 1, 'LED Center', 'nm')),
+    (sliderFWHM = new ProductSlider('fwhm', 1, 200, GausFWHM, 1, 'LED FWHM', 'nm')),
     new ProductSlider('depth', 0, 500, Depth, 1, 'Depth', 'µm'),
     new ProductSlider('conc', 0, 1000, Concentration, 1, 'Concentration', 'mM')
   ];
@@ -176,13 +274,12 @@ function initSliders() {
     slider.setCallback(callbacks[i]);
   });
 
-  // --- Panel position ---
-  const PAD_SIDE = 10;
-  setPanelPosition(gui, "right", attPlot.GPLOT.mar[2], PAD_SIDE);
-
-  // Initial curve draw
+  toggleGaussianControls();
+  setPanelPosition(gui, "right", attPlot.GPLOT.mar[2], 10);
   updateCurve();
 }
+
+
 
 // -------------------- Load default spectra --------------------
 function loadDefaultSpectrum(name) {
@@ -241,55 +338,70 @@ function parseCustomCSV(customData) {
 
 }
 
-
-
-
-
 // -------------------- Curve Computation --------------------
 function updateCurve() {
   if (!dataX.length) return;
 
   const npts = 400;
-  const minX = 0; // extend to 0 for integration
+  const minX = 0;
   const maxX = Math.max(...dataX);
-  const dataMax = Math.max(...dataY); // max value for extrapolation
+  const dataMax = Math.max(...dataY);
 
   let fullGaussY = [];
   let fullProductY = [];
   let fullAttenY = [];
   let fullAttenProductY = [];
 
-  const GausSig = GausFWHM / 2.35482; // convert FWHM to sigma
+  const GausSig = GausFWHM / 2.35482;
+  const useArcLamp = (currentLightSpectrum === "ArcLamp");
+  const useCustomLight = (currentLightSpectrum === "CustomLight");
+
+  // Normalize light spectrum arrays if using ArcLamp or CustomLight
+  if ((useArcLamp || useCustomLight) && lightY && lightY.length > 0) {
+    const maxLight = Math.max(...lightY);
+    if (maxLight > 0) {
+      lightY = lightY.map(y => y / maxLight);
+    }
+  }
 
   for (let i = 0; i < npts; i++) {
     const x = lerp(minX, maxX, i / (npts - 1));
-    const g = GAUS_AMP * Math.exp(-Math.pow(x - GausMean, 2) / (2 * GausSig * GausSig));
-    const yData = interp1(dataX, dataY, x, dataMax);
+    const yAbs = interp1(dataX, dataY, x, dataMax);
 
-    fullGaussY.push({ x, y: g });
-    fullProductY.push({ x, y: g * yData * x});
-    fullAttenY.push({ x, y: g * Math.exp(-yData * Concentration/1000 * Depth/10000) });
-    fullAttenProductY.push({ x, y: g * Math.exp(-yData * Concentration/1000 * Depth/10000) * yData * x});
+    // --- Light source intensity (LED Gaussian / ArcLamp / CustomLight)
+    let lightYval;
+    if (useArcLamp || useCustomLight) {
+      lightYval = interp1(lightX, lightY, x, 0); // normalized earlier
+    } else {
+      lightYval = GAUS_AMP * Math.exp(-Math.pow(x - GausMean, 2) / (2 * GausSig * GausSig));
+    }
+
+    // --- Compute combined effects ---
+    const atten = Math.exp(-yAbs * Concentration/1000 * Depth/10000);
+    const absorbed = lightYval * yAbs * x;
+    const attenuatedLight = lightYval * atten;
+    const attenuatedAbsorbed = attenuatedLight * yAbs * x;
+
+    fullGaussY.push({ x, y: lightYval });
+    fullProductY.push({ x, y: absorbed });
+    fullAttenY.push({ x, y: attenuatedLight });
+    fullAttenProductY.push({ x, y: attenuatedAbsorbed });
   }
 
-  // Compute global max of raw product values for scaling
+  // Normalize to the peak absorbed value
   const productMax = Math.max(...fullProductY.map(p => p.y));
-
-  // Scale product arrays
   fullProductY = fullProductY.map(p => ({ x: p.x, y: p.y / productMax }));
   fullAttenProductY = fullAttenProductY.map(p => ({ x: p.x, y: p.y / productMax }));
 
-  // Compute integrals over full range
+  // Integrate over full range
   const integralProduct = trapz(fullProductY.map(p => p.x), fullProductY.map(p => p.y));
   const integralAtten = trapz(fullAttenProductY.map(p => p.x), fullAttenProductY.map(p => p.y));
 
-  // Percentage attenuation
   const percentAtten = 100 * integralAtten / integralProduct;
+  integral = integralProduct;
+  integralPercent = percentAtten;
 
-  integral = integralProduct; // still show original integral if needed
-  integralPercent = percentAtten; // store for title
-
-  // Store only visible range for plotting
+  // Crop to plot range
   const plotMinX = Math.min(...dataX);
   const plotMaxX = Math.max(...dataX);
 
@@ -300,6 +412,7 @@ function updateCurve() {
 
   redraw();
 }
+
 
 // -------------------- Draw Plot Title --------------------
 function drawPlot() {
@@ -349,8 +462,8 @@ function drawPlot() {
 
   const legendItems = [
     { col: color(0, 0, 255), label: "Absorbance" },
-    { col: color(0, 220, 0), label: "Gaussian LED" },
-    { col: color(220, 0, 0), label: "Absorbed photons" },
+    { col: color(0, 220, 0), label: "Incident light" },
+    { col: color(220, 0, 0), label: "Incident absorbed photons" },
     { col: color(0, 180, 80), label: "Attenuated light" },
     { col: color(180, 0, 80), label: "Attenuated absorbed photons" }
   ];
@@ -707,5 +820,53 @@ function formatTick(val, decimals = 2) {
   return str;
 }
 
+function loadLightCSV(fileName) {
+  loadTable(fileName, "csv", "header", tbl => {
+    lightX = [];
+    lightY = [];
+    for (let r = 0; r < tbl.getRowCount(); r++) {
+      const x = float(tbl.getString(r, 0));
+      const y = float(tbl.getString(r, 1));
+      if (!isNaN(x) && !isNaN(y)) {
+        lightX.push(x);
+        lightY.push(y);
+      }
+    }
+    console.log(`Loaded light source: ${fileName}`);
+    updateCurve();
+  }, err => {
+    console.error("Failed to load light CSV:", err);
+  });
+}
 
+function toggleGaussianControls() {
+  const isLED = currentLightSpectrum === "LED";
+  sliderMean.div.style.display = isLED ? "block" : "none";
+  sliderFWHM.div.style.display = isLED ? "block" : "none";
+}
 
+function loadDefaultLightSpectrum(type) {
+  if (type === "ArcLamp") {
+    fetch("arcLamp.csv")
+      .then(res => res.text())
+      .then(text => {
+        const parsed = Papa.parse(text, { header: true, dynamicTyping: true }).data;
+        lightX = [];
+        lightY = [];
+        parsed.forEach(row => {
+          const keys = Object.keys(row);
+          if (keys.length >= 2) {
+            const x = parseFloat(row[keys[0]]);
+            const y = parseFloat(row[keys[1]]);
+            if (!isNaN(x) && !isNaN(y)) {
+              lightX.push(x);
+              lightY.push(y);
+            }
+          }
+        });
+        console.log(`Arc Lamp CSV loaded (${lightX.length} points).`);
+        updateCurve();
+      })
+      .catch(err => console.error("Failed to load arcLamp.csv:", err));
+  }
+}
