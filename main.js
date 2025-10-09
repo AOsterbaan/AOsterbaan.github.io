@@ -477,7 +477,7 @@ function drawPlot() {
   const legendBoxSize = 12;
 
   const legendItems = [
-    { col: color(0, 0, 255), label: "Absorbance" },
+    { col: color(0, 0, 255), label: "Absorbtivity (right)" },
     { col: color(0, 220, 0), label: "Incident light" },
     { col: color(220, 0, 0), label: "Incident absorbed photons" },
     { col: color(0, 180, 80), label: "Attenuated light" },
