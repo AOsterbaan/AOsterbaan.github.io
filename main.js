@@ -565,12 +565,11 @@ function drawAxes(PAD) {
   pop();
 
   // --- Tick marks ---
-  const nXTicks = 8;
+  const nXTicks = 8;   // desired # of ticks, not fixed positions
   const nYTicks = 6;
 
   const minX = Math.min(...dataX);
   const maxX = Math.max(...dataX);
-
   const minYLeft = 0;
   const maxYLeft = Math.max(
     ...gaussY.map(p => p.y),
@@ -578,45 +577,45 @@ function drawAxes(PAD) {
     ...attenY.map(p => p.y),
     ...attenProductY.map(p => p.y)
   );
-
   const minYRight = 0;
   const maxYRight = Math.max(...dataY);
 
-  // --- X ticks ---
-textAlign(CENTER, TOP);
-const xTicks = getTicks(Math.min(...dataX), Math.max(...dataX), 10);
-xTicks.forEach(xVal => {
-  const px = map(xVal, Math.min(...dataX), Math.max(...dataX), PAD, width - PAD);
-  stroke(0); line(px, height - PAD, px, height - PAD + 5);
-  noStroke(); fill(0);
-  text(formatTick(xVal, 1), px, height - PAD + 7);
-});
+  // --- X ticks (dynamic spacing) ---
+  const xTicks = getTicks(minX, maxX, nXTicks);
+  textAlign(CENTER, TOP);
+  xTicks.forEach(xVal => {
+    const px = map(xVal, minX, maxX, PAD, width - PAD);
+    stroke(0);
+    line(px, height - PAD, px, height - PAD + 5);
+    noStroke();
+    fill(0);
+    text(formatTick(xVal, 1), px, height - PAD + 7);
+  });
 
-// --- Left Y ticks ---
-textAlign(RIGHT, CENTER);
-const yLeftTicks = getTicks(0, Math.max(
-  ...gaussY.map(p => p.y),
-  ...productY.map(p => p.y),
-  ...attenY.map(p => p.y),
-  ...attenProductY.map(p => p.y)
-), 10);
+  // --- Left Y ticks (dynamic scaling) ---
+  const yLeftTicks = getTicks(minYLeft, maxYLeft, nYTicks);
+  textAlign(RIGHT, CENTER);
+  yLeftTicks.forEach(yVal => {
+    const py = map(yVal, minYLeft, maxYLeft, height - PAD, PAD);
+    stroke(0);
+    line(PAD - 5, py, PAD, py);
+    noStroke();
+    fill(0);
+    text(formatTick(yVal, 2), PAD - 7, py);
+  });
 
-yLeftTicks.forEach(yVal => {
-  const py = map(yVal, 0, Math.max(...yLeftTicks), height - PAD, PAD);
-  stroke(0); line(PAD - 5, py, PAD, py);
-  noStroke(); fill(0);
-  text(formatTick(yVal, 2), PAD - 7, py);
-});
+  // --- Right Y ticks (dynamic scaling) ---
+  const yRightTicks = getTicks(minYRight, maxYRight, nYTicks);
+  textAlign(LEFT, CENTER);
+  yRightTicks.forEach(yVal => {
+    const py = map(yVal, minYRight, maxYRight, height - PAD, PAD);
+    stroke(0);
+    line(width - PAD, py, width - PAD + 5, py);
+    noStroke();
+    fill(0);
+    text(formatTick(yVal, 2), width - PAD + 7, py);
+  });
 
-// --- Right Y ticks ---
-textAlign(LEFT, CENTER);
-const yRightTicks = getTicks(0, Math.max(...dataY), 10);
-yRightTicks.forEach(yVal => {
-  const py = map(yVal, 0, Math.max(...yRightTicks), height - PAD, PAD);
-  stroke(0); line(width - PAD, py, width - PAD + 5, py);
-  noStroke(); fill(0);
-  text(formatTick(yVal, 2), width - PAD + 7, py);
-});
 
 }
 
@@ -789,21 +788,39 @@ function windowResized() {
 
 // -------------------- Misc Helpers --------------------
 function getTicks(minVal, maxVal, targetTicks = 5) {
-  const range = niceNumber(maxVal - minVal, false);
-  const tickSpacing = niceNumber(range / (targetTicks - 1), true);
-  const niceMin = Math.floor(minVal / tickSpacing) * tickSpacing;
-  const niceMax = Math.ceil(maxVal / tickSpacing) * tickSpacing;
+  if (minVal === maxVal) return [minVal];
+
+  // Ensure correct order
+  if (maxVal < minVal) [minVal, maxVal] = [maxVal, minVal];
+
+  const rawRange = maxVal - minVal;
+  const tickSpacing = niceNumber(rawRange / (targetTicks - 1), true);
+
+  // Start and end exactly within range (no "nice" snapping outward)
+  const niceMin = Math.ceil(minVal / tickSpacing) * tickSpacing;
+  const niceMax = Math.floor(maxVal / tickSpacing) * tickSpacing;
 
   const ticks = [];
-  for (let val = niceMin; val <= niceMax + 0.5 * tickSpacing; val += tickSpacing) {
-    ticks.push(val);
+
+  // Always include endpoints
+  ticks.push(minVal);
+
+  // Add internal ticks (within strict range)
+  for (let val = niceMin; val <= niceMax + 1e-9; val += tickSpacing) {
+    if (val > minVal && val < maxVal) {
+      ticks.push(parseFloat(val.toPrecision(10)));
+    }
   }
-  return ticks;
+
+  ticks.push(maxVal);
+
+  // De-duplicate in case of overlap
+  return [...new Set(ticks)];
 }
 
 function niceNumber(range, round = true) {
-  // Range should be positive
-  const exponent = Math.floor(Math.log10(range));
+  if (range === 0) return 0;
+  const exponent = Math.floor(Math.log10(Math.abs(range)));
   const fraction = range / Math.pow(10, exponent);
   let niceFraction;
 
@@ -822,18 +839,32 @@ function niceNumber(range, round = true) {
   return niceFraction * Math.pow(10, exponent);
 }
 
-function formatTick(val, decimals = 2) {
-  // Round to given decimal places
-  const factor = Math.pow(10, decimals);
-  let rounded = Math.round(val * factor) / factor;
+function formatTick(val, maxDecimals = 6) {
+  // Handle degenerate cases
+  if (!isFinite(val)) return "";
+  if (Math.abs(val) < 1e-12) return "0";
 
-  // Convert to string and remove trailing zeros
-  let str = rounded.toString();
+  // Determine required decimal places based on magnitude and step size
+  // (keeps small values precise without overkill)
+  let decimals = 0;
+  const absVal = Math.abs(val);
 
-  if (str.indexOf('.') >= 0) {
-    // Remove trailing zeros
-    str = str.replace(/\.?0+$/, '');
-  }
+  if (absVal >= 1000) decimals = 0;
+  else if (absVal >= 100) decimals = 1;
+  else if (absVal >= 10) decimals = 2;
+  else if (absVal >= 1) decimals = 3;
+  else if (absVal >= 0.1) decimals = 4;
+  else if (absVal >= 0.01) decimals = 5;
+  else decimals = 6;
+
+  // Cap decimals to avoid excessive precision
+  decimals = Math.min(decimals, maxDecimals);
+
+  // Round then remove trailing zeros safely
+  let str = val.toFixed(decimals);
+  str = str.replace(/(\.\d*?[1-9])0+$/, "$1"); // trim trailing zeros
+  str = str.replace(/\.0+$/, ""); // remove ".0"
+
   return str;
 }
 
