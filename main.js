@@ -96,49 +96,73 @@ function initSliders() {
   gui = createGui('Plot controls', 100, 100);
   const parent = gui.prototype._panel;
 
-  // -------------------- LIGHT SOURCE SECTION --------------------
-  const lightDiv = document.createElement("div");
-  lightDiv.className = "qs_container";
-  lightDiv.innerHTML = `<b>Light Source:</b> `;
+// -------------------- LIGHT SOURCE SECTION --------------------
+const lightDiv = document.createElement("div");
+lightDiv.className = "qs_container";
+lightDiv.innerHTML = `<b>Light Source:</b> `;
 
-  const lightSelect = document.createElement("select");
-  ["LED (Gaussian)", "Hg Lamp (400-500 nm filter)", "Custom Spectrum"].forEach(opt =>
-    lightSelect.add(new Option(opt, opt))
-  );
-  lightSelect.value =
-    currentLightSpectrum === "ArcLamp"
-      ? "Hg-Arc Lamp (400-500 filter)"
-      : currentLightSpectrum === "CustomLight"
-      ? "Custom Spectrum"
-      : "LED (Gaussian)";
-  lightDiv.appendChild(lightSelect);
-  parent.appendChild(lightDiv);
+const lightSelect = document.createElement("select");
+lightDiv.appendChild(lightSelect);
 
-  // --- Custom light CSV upload (hidden unless "Custom Spectrum")
-  const lightFileInput = document.createElement("input");
-  lightFileInput.type = "file";
-  lightFileInput.accept = ".csv";
-  lightFileInput.style.display =
-    currentLightSpectrum === "CustomLight" ? "inline-block" : "none";
-  lightDiv.appendChild(lightFileInput);
+// Options with optional description (appears below dropdown)
+const lightOpts = [
+  { label: "LED", value: "LED", desc: "Gaussian"},
+  { label: "Hg arc lamp", value: "ArcLamp", desc: "400-500 nm filter" },
+  { label: "Custom spectrum", value: "CustomLight" }
+];
 
-  // --- Handle light source change
-  lightSelect.addEventListener("change", e => {
-    const newVal = e.target.value;
-    if (newVal.includes("Arc Lamp")) {
-      currentLightSpectrum = "ArcLamp";
-      lightFileInput.style.display = "none";
-      loadDefaultLightSpectrum("ArcLamp");
-    } else if (newVal.includes("Custom")) {
-      currentLightSpectrum = "CustomLight";
-      lightFileInput.style.display = "inline-block";
-    } else {
-      currentLightSpectrum = "LED";
-      lightFileInput.style.display = "none";
-    }
-    toggleGaussianControls();
-    updateCurve();
-  });
+// Populate dropdown
+lightOpts.forEach(opt => {
+  const option = document.createElement("option");
+  option.value = opt.value;
+  option.textContent = opt.label;
+  lightSelect.appendChild(option);
+});
+
+// Description div under dropdown
+const lightDesc = document.createElement("div");
+lightDesc.style.fontSize = "12px";
+lightDesc.style.marginTop = "2px";
+lightDesc.style.whiteSpace = "pre-line";
+lightDiv.appendChild(lightDesc);
+
+// Initialize description
+const initOpt = lightOpts.find(o => o.value === currentLightSpectrum);
+lightDesc.textContent = initOpt?.desc || "";
+
+parent.appendChild(lightDiv);
+
+// --- Custom light CSV upload (hidden unless "Custom Spectrum")
+const lightFileInput = document.createElement("input");
+lightFileInput.type = "file";
+lightFileInput.accept = ".csv";
+lightFileInput.style.display =
+  currentLightSpectrum === "CustomLight" ? "inline-block" : "none";
+lightDiv.appendChild(lightFileInput);
+
+// --- Handle light source change
+lightSelect.addEventListener("change", e => {
+  const newVal = e.target.value;
+  const selected = lightOpts.find(o => o.value === newVal);
+
+  // Update description line dynamically
+  lightDesc.textContent = selected?.desc || "";
+
+  if (newVal === "ArcLamp") {
+    currentLightSpectrum = "ArcLamp";
+    lightFileInput.style.display = "none";
+    loadDefaultLightSpectrum("ArcLamp");
+  } else if (newVal === "CustomLight") {
+    currentLightSpectrum = "CustomLight";
+    lightFileInput.style.display = "inline-block";
+  } else {
+    currentLightSpectrum = "LED";
+    lightFileInput.style.display = "none";
+  }
+  toggleGaussianControls();
+  updateCurve();
+});
+
 
   // --- Handle custom light CSV upload
   lightFileInput.addEventListener("change", e => {
@@ -166,8 +190,10 @@ function initSliders() {
         });
 
         if (newX.length && newY.length) {
+          // Normalize to max 1
+          const maxY = Math.max(...newY);
           lightX = newX;
-          lightY = newY;
+          lightY = newY.map(v => v / maxY);
           currentLightSpectrum = "CustomLight";
           updateCurve();
           console.log(`Custom light CSV loaded (${lightX.length} points).`);
@@ -184,19 +210,19 @@ function initSliders() {
   spectrumDiv.className = "qs_container";
   spectrumDiv.innerHTML = `<b>Absorbance Spectrum:</b> `;
 
-  const absOptions = ["Exponential", "TPO", "Custom"];
   const absSelect = document.createElement("select");
+  const absOptions = ["Exponential", "TPO", "Custom"];
   absOptions.forEach(opt => absSelect.add(new Option(opt, opt)));
   absSelect.value = currentAbsSpectrum;
   spectrumDiv.appendChild(absSelect);
+
   parent.appendChild(spectrumDiv);
 
-  // --- Absorbance CSV upload (for "Custom")
+  // --- Absorbance CSV upload (hidden unless Custom)
   const absFileInput = document.createElement("input");
   absFileInput.type = "file";
   absFileInput.accept = ".csv";
-  absFileInput.style.display =
-    currentAbsSpectrum === "Custom" ? "inline-block" : "none";
+  absFileInput.style.display = currentAbsSpectrum === "Custom" ? "inline-block" : "none";
   spectrumDiv.appendChild(absFileInput);
 
   // --- Handle absorbance selection
@@ -215,7 +241,7 @@ function initSliders() {
     }
   });
 
-  // --- Handle absorbance CSV upload
+  // --- Handle custom absorbance CSV upload
   absFileInput.addEventListener("change", e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -278,6 +304,8 @@ function initSliders() {
   setPanelPosition(gui, "right", attPlot.GPLOT.mar[2], 10);
   updateCurve();
 }
+
+
 
 
 
