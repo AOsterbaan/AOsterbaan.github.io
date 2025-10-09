@@ -102,8 +102,8 @@ function initSliders() {
   lightDiv.appendChild(lightSelect);
 
   const lightOpts = [
-    { label: "LED (Gaussian)", value: "LED" },
-    { label: "Hg Lamp", value: "ArcLamp", desc: "(400-500 nm filter)" },
+    { label: "LED", value: "LED", desc: "Gaussian" },
+    { label: "Hg Lamp", value: "ArcLamp", desc: "400-500 nm filter" },
     { label: "Custom Spectrum", value: "CustomLight" }
   ];
 
