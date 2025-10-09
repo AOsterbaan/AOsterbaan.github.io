@@ -213,7 +213,7 @@ function initSliders() {
   spectrumDiv.className = "qs_container";
   spectrumDiv.innerHTML = `<b>Absorbance Spectrum:</b> `;
 
-  const absOptions = ["Exponential", "TPO", "Custom"];
+  const absOptions = ["Exponential", "TPO", "Irgacure 907", "Custom"];
   const absSelect = document.createElement("select");
   absOptions.forEach(opt => absSelect.add(new Option(opt, opt)));
   absSelect.value = currentAbsSpectrum;
@@ -302,6 +302,7 @@ function loadDefaultSpectrum(name) {
   let path = "";
   if (name === "Exponential") path = "exponentialAbs.csv";
   if (name === "TPO") path = "tpoAbs.csv";
+  if (name === "Irgacure 907") path = "I907Abs.csv";
 
   loadTable(path, "csv", "header", tbl => {
     table = tbl;
@@ -477,7 +478,7 @@ function drawPlot() {
   const legendBoxSize = 12;
 
   const legendItems = [
-    { col: color(0, 0, 255), label: "Absorbtivity (right)" },
+    { col: color(0, 0, 255), label: "Absorbance" },
     { col: color(0, 220, 0), label: "Incident light" },
     { col: color(220, 0, 0), label: "Incident absorbed photons" },
     { col: color(0, 180, 80), label: "Attenuated light" },
