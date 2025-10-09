@@ -787,35 +787,31 @@ function windowResized() {
 }
 
 // -------------------- Misc Helpers --------------------
-function getTicks(minVal, maxVal, targetTicks = 5) {
+function getTicks(minVal, maxVal, targetTicks = 5, spacingFraction = 0.02) {
+  // spacingFraction = fraction of total range that counts as "too close"
   if (minVal === maxVal) return [minVal];
 
-  // Ensure correct order
   if (maxVal < minVal) [minVal, maxVal] = [maxVal, minVal];
 
-  const rawRange = maxVal - minVal;
-  const tickSpacing = niceNumber(rawRange / (targetTicks - 1), true);
+  const range = maxVal - minVal;
+  const minSpacing = range * spacingFraction;
 
-  // Start and end exactly within range (no "nice" snapping outward)
-  const niceMin = Math.ceil(minVal / tickSpacing) * tickSpacing;
-  const niceMax = Math.floor(maxVal / tickSpacing) * tickSpacing;
+  const tickSpacing = niceNumber(range / (targetTicks - 1), true);
 
   const ticks = [];
+  let val = Math.ceil(minVal / tickSpacing) * tickSpacing;
 
-  // Always include endpoints
-  ticks.push(minVal);
-
-  // Add internal ticks (within strict range)
-  for (let val = niceMin; val <= niceMax + 1e-9; val += tickSpacing) {
-    if (val > minVal && val < maxVal) {
+  while (val <= maxVal + 1e-9) {
+    if (ticks.length === 0 || Math.abs(val - ticks[ticks.length - 1]) > minSpacing) {
       ticks.push(parseFloat(val.toPrecision(10)));
     }
+    val += tickSpacing;
   }
 
-  ticks.push(maxVal);
+  if (ticks.length && minVal < ticks[0] - minSpacing) ticks.unshift(minVal);
+  if (ticks.length && maxVal > ticks[ticks.length - 1] + minSpacing) ticks.push(maxVal);
 
-  // De-duplicate in case of overlap
-  return [...new Set(ticks)];
+  return ticks;
 }
 
 function niceNumber(range, round = true) {
