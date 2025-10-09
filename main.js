@@ -38,8 +38,6 @@ let spectrumCache = {
   "Custom": null
 };
 
-
-
 // -------------------- Preload CSV --------------------
 function preload() {
   table = loadTable(currentFile, "csv", "header");
@@ -90,79 +88,70 @@ function parseCSV() {
   spectrumCache[currentAbsSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
 }
 
-
 // -------------------- GUI / Sliders --------------------
 function initSliders() {
   gui = createGui('Plot controls', 100, 100);
   const parent = gui.prototype._panel;
 
-// -------------------- LIGHT SOURCE SECTION --------------------
-const lightDiv = document.createElement("div");
-lightDiv.className = "qs_container";
-lightDiv.innerHTML = `<b>Light Source:</b> `;
+  // -------------------- LIGHT SOURCE SECTION --------------------
+  const lightDiv = document.createElement("div");
+  lightDiv.className = "qs_container";
+  lightDiv.innerHTML = `<b>Light Source:</b> `;
 
-const lightSelect = document.createElement("select");
-lightDiv.appendChild(lightSelect);
+  const lightSelect = document.createElement("select");
+  lightDiv.appendChild(lightSelect);
 
-// Options with optional description (appears below dropdown)
-const lightOpts = [
-  { label: "LED", value: "LED", desc: "Gaussian"},
-  { label: "Hg arc lamp", value: "ArcLamp", desc: "400-500 nm filter" },
-  { label: "Custom spectrum", value: "CustomLight" }
-];
+  const lightOpts = [
+    { label: "LED (Gaussian)", value: "LED" },
+    { label: "Hg Lamp", value: "ArcLamp", desc: "(400-500 nm filter)" },
+    { label: "Custom Spectrum", value: "CustomLight" }
+  ];
 
-// Populate dropdown
-lightOpts.forEach(opt => {
-  const option = document.createElement("option");
-  option.value = opt.value;
-  option.textContent = opt.label;
-  lightSelect.appendChild(option);
-});
+  lightOpts.forEach(opt => {
+    const option = document.createElement("option");
+    option.value = opt.value;
+    option.textContent = opt.label;
+    lightSelect.appendChild(option);
+  });
 
-// Description div under dropdown
-const lightDesc = document.createElement("div");
-lightDesc.style.fontSize = "12px";
-lightDesc.style.marginTop = "2px";
-lightDesc.style.whiteSpace = "pre-line";
-lightDiv.appendChild(lightDesc);
+  const lightDesc = document.createElement("div");
+  lightDesc.style.fontSize = "12px";
+  lightDesc.style.marginTop = "2px";
+  lightDesc.style.whiteSpace = "pre-line";
+  const initOpt = lightOpts.find(o => o.value === currentLightSpectrum);
+  lightDesc.textContent = initOpt?.desc || "";
+  lightDiv.appendChild(lightDesc);
 
-// Initialize description
-const initOpt = lightOpts.find(o => o.value === currentLightSpectrum);
-lightDesc.textContent = initOpt?.desc || "";
+  const lightFileInput = document.createElement("input");
+  lightFileInput.type = "file";
+  lightFileInput.accept = ".csv";
+  lightFileInput.style.display =
+    currentLightSpectrum === "CustomLight" ? "inline-block" : "none";
+  lightDiv.appendChild(lightFileInput);
 
-parent.appendChild(lightDiv);
+  parent.appendChild(lightDiv);
 
-// --- Custom light CSV upload (hidden unless "Custom Spectrum")
-const lightFileInput = document.createElement("input");
-lightFileInput.type = "file";
-lightFileInput.accept = ".csv";
-lightFileInput.style.display =
-  currentLightSpectrum === "CustomLight" ? "inline-block" : "none";
-lightDiv.appendChild(lightFileInput);
+  // --- Handle light source change
+  lightSelect.addEventListener("change", e => {
+    const newVal = e.target.value;
+    const selected = lightOpts.find(o => o.value === newVal);
 
-// --- Handle light source change
-lightSelect.addEventListener("change", e => {
-  const newVal = e.target.value;
-  const selected = lightOpts.find(o => o.value === newVal);
+    lightDesc.textContent = selected?.desc || "";
 
-  // Update description line dynamically
-  lightDesc.textContent = selected?.desc || "";
-
-  if (newVal === "ArcLamp") {
-    currentLightSpectrum = "ArcLamp";
-    lightFileInput.style.display = "none";
-    loadDefaultLightSpectrum("ArcLamp");
-  } else if (newVal === "CustomLight") {
-    currentLightSpectrum = "CustomLight";
-    lightFileInput.style.display = "inline-block";
-  } else {
-    currentLightSpectrum = "LED";
-    lightFileInput.style.display = "none";
-  }
-  toggleGaussianControls();
-  updateCurve();
-});
-
+    if (newVal === "ArcLamp") {
+      currentLightSpectrum = "ArcLamp";
+      lightFileInput.style.display = "none";
+      loadDefaultLightSpectrum("ArcLamp");
+    } else if (newVal === "CustomLight") {
+      currentLightSpectrum = "CustomLight";
+      lightFileInput.style.display = "inline-block";
+    } else {
+      currentLightSpectrum = "LED";
+      lightFileInput.style.display = "none";
+    }
+    toggleGaussianControls();
+    updateCurve();
+  });
 
   // --- Handle custom light CSV upload
   lightFileInput.addEventListener("change", e => {
@@ -190,10 +179,8 @@ lightSelect.addEventListener("change", e => {
         });
 
         if (newX.length && newY.length) {
-          // Normalize to max 1
-          const maxY = Math.max(...newY);
           lightX = newX;
-          lightY = newY.map(v => v / maxY);
+          lightY = newY;
           currentLightSpectrum = "CustomLight";
           updateCurve();
           console.log(`Custom light CSV loaded (${lightX.length} points).`);
@@ -205,27 +192,42 @@ lightSelect.addEventListener("change", e => {
     reader.readAsText(file);
   });
 
-  // -------------------- ABSORBANCE / SAMPLE SECTION --------------------
+  // -------------------- LED PARAMETERS --------------------
+  const sliders = [];
+
+  sliderMean = new ProductSlider('mean', 300, 800, GausMean, 1, 'LED Center', 'nm');
+  sliderFWHM = new ProductSlider('fwhm', 1, 200, GausFWHM, 1, 'LED FWHM', 'nm');
+  sliders.push(sliderMean, sliderFWHM);
+
+  sliderMean.setCallback(val => { GausMean = val; updateCurve(); });
+  sliderFWHM.setCallback(val => { GausFWHM = val; updateCurve(); });
+
+  sliders.forEach(slider => {
+    slider.attachParent(parent);
+  });
+
+  toggleGaussianControls(); // hide if not LED
+
+  // -------------------- INITIATOR / ABSORBANCE --------------------
   const spectrumDiv = document.createElement("div");
   spectrumDiv.className = "qs_container";
   spectrumDiv.innerHTML = `<b>Absorbance Spectrum:</b> `;
 
-  const absSelect = document.createElement("select");
   const absOptions = ["Exponential", "TPO", "Custom"];
+  const absSelect = document.createElement("select");
   absOptions.forEach(opt => absSelect.add(new Option(opt, opt)));
   absSelect.value = currentAbsSpectrum;
   spectrumDiv.appendChild(absSelect);
 
-  parent.appendChild(spectrumDiv);
-
-  // --- Absorbance CSV upload (hidden unless Custom)
   const absFileInput = document.createElement("input");
   absFileInput.type = "file";
   absFileInput.accept = ".csv";
   absFileInput.style.display = currentAbsSpectrum === "Custom" ? "inline-block" : "none";
   spectrumDiv.appendChild(absFileInput);
 
-  // --- Handle absorbance selection
+  parent.appendChild(spectrumDiv);
+
+  // --- Absorbance selection
   absSelect.addEventListener("change", e => {
     const newSpec = e.target.value;
     spectrumCache[currentAbsSpectrum] = { dataX: [...dataX], dataY: [...dataY] };
@@ -241,7 +243,7 @@ lightSelect.addEventListener("change", e => {
     }
   });
 
-  // --- Handle custom absorbance CSV upload
+  // --- Absorbance CSV upload
   absFileInput.addEventListener("change", e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -280,34 +282,20 @@ lightSelect.addEventListener("change", e => {
     reader.readAsText(file);
   });
 
-  // -------------------- SLIDERS --------------------
-  const sliders = [
-    (sliderMean = new ProductSlider('mean', 300, 800, GausMean, 1, 'LED Center', 'nm')),
-    (sliderFWHM = new ProductSlider('fwhm', 1, 200, GausFWHM, 1, 'LED FWHM', 'nm')),
-    new ProductSlider('depth', 0, 500, Depth, 1, 'Depth', 'µm'),
-    new ProductSlider('conc', 0, 1000, Concentration, 1, 'Concentration', 'mM')
-  ];
+  // -------------------- INITIATOR CONCENTRATION & DEPTH --------------------
+  const concSlider = new ProductSlider('conc', 0, 1000, Concentration, 1, 'Concentration', 'mM');
+  const depthSlider = new ProductSlider('depth', 0, 500, Depth, 1, 'Depth', 'µm');
 
-  const callbacks = [
-    val => { GausMean = val; updateCurve(); },
-    val => { GausFWHM = val; updateCurve(); },
-    val => { Depth = val; updateCurve(); },
-    val => { Concentration = val; updateCurve(); }
-  ];
+  concSlider.setCallback(val => { Concentration = val; updateCurve(); });
+  depthSlider.setCallback(val => { Depth = val; updateCurve(); });
 
-  sliders.forEach((slider, i) => {
-    slider.attachParent(parent);
-    slider.setCallback(callbacks[i]);
-  });
+  concSlider.attachParent(parent);
+  depthSlider.attachParent(parent);
 
-  toggleGaussianControls();
+  // -------------------- PANEL & INITIAL UPDATE --------------------
   setPanelPosition(gui, "right", attPlot.GPLOT.mar[2], 10);
   updateCurve();
 }
-
-
-
-
 
 // -------------------- Load default spectra --------------------
 function loadDefaultSpectrum(name) {
