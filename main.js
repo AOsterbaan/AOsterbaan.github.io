@@ -814,6 +814,10 @@ function getTicks(minVal, maxVal, targetTicks = 5, spacingFraction = 0.02) {
   return ticks;
 }
 
+
+
+
+
 function niceNumber(range, round = true) {
   if (range === 0) return 0;
   const exponent = Math.floor(Math.log10(Math.abs(range)));
@@ -914,3 +918,18 @@ function loadDefaultLightSpectrum(type) {
       .catch(err => console.error("Failed to load arcLamp.csv:", err));
   }
 }
+
+// -------------- Toggle hamburger menu------------------
+function toggleMenu() {
+  const menu = document.getElementById('menu');
+  menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+}
+
+// Click outside to close
+document.addEventListener('click', e => {
+  const menu = document.getElementById('menu');
+  const btn = document.querySelector('.menu-button');
+  if (!btn.contains(e.target) && !menu.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
